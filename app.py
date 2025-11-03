@@ -1,116 +1,96 @@
-# ============================================================
-# 🌍 AI-Powered Disaster Detection System (Unified App)
-# ============================================================
-
 import streamlit as st
 import numpy as np
 from PIL import Image
-from tensorflow.keras.models import load_model
-from tensorflow.keras.preprocessing import image
-from tensorflow.keras.preprocessing.sequence import pad_sequences
 import tensorflow as tf
-import pickle
+from tensorflow.keras.preprocessing.text import Tokenizer
+from tensorflow.keras.preprocessing.sequence import pad_sequences
+from tensorflow.keras.models import load_model
+import re
 
-# ✅ Streamlit Page Config (must be first)
+# -------------------------------
+# 🌍 PAGE SETUP — FIRST LINE
+# -------------------------------
 st.set_page_config(page_title="AI-Powered Disaster Detection System", layout="centered")
-
-# ============================================================
-# LOAD MODELS & TOKENIZER
-# ============================================================
-
-@st.cache_resource
-def load_models():
-    cnn_model = load_model("disaster_cnn_mobilenet_clean.h5")
-    text_model = load_model("disaster_text_lstm_clean.h5")
-    with open("tokenizer.pkl", "rb") as f:
-        tokenizer = pickle.load(f)
-    return cnn_model, text_model, tokenizer
-
-try:
-    cnn_model, text_model, tokenizer = load_models()
-    st.sidebar.success("✅ Models loaded successfully!")
-except Exception as e:
-    st.sidebar.error("⚠️ Model load error: " + str(e))
-
-# ============================================================
-# PAGE HEADER
-# ============================================================
 
 st.title("🌍 AI-Powered Disaster Detection System")
 st.write("Analyze **images** and **messages** to detect potential disasters in real time.")
 
-st.divider()
+# -------------------------------
+# 🧠 CACHE MODELS
+# -------------------------------
+@st.cache_resource(show_spinner=True)
+def load_models():
+    cnn = load_model("disaster_cnn_mobilenet_clean.h5")
+    text = load_model("disaster_text_lstm_clean.h5")
+    return cnn, text
 
-# ============================================================
-# USER INPUT SECTION
-# ============================================================
+cnn_model, text_model = load_models()
+
+# -------------------------------
+# 🧹 TEXT PREPROCESSING
+# -------------------------------
+@st.cache_data
+def clean_text(text):
+    text = text.lower()
+    text = re.sub(r"http\S+|@\w+|[^a-zA-Z\s]", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+tokenizer = Tokenizer(num_words=20000, oov_token="<OOV>")
+
+@st.cache_data
+def tokenize_text(texts):
+    seq = tokenizer.texts_to_sequences(texts)
+    return pad_sequences(seq, maxlen=60, padding='post')
+
+# -------------------------------
+# 🖼️ IMAGE PREPROCESSING
+# -------------------------------
+@st.cache_data
+def preprocess_image(image):
+    img = image.resize((224, 224))
+    img = np.array(img) / 255.0
+    return np.expand_dims(img, axis=0)
+
+# -------------------------------
+# 🎛️ MAIN APP INTERFACE
+# -------------------------------
+st.divider()
+st.header("🖼️ Image or 💬 Text Analysis")
 
 col1, col2 = st.columns(2)
 
+# -------------------------------
+# 🖼️ IMAGE SECTION
+# -------------------------------
 with col1:
-    st.subheader("🖼️ Image Analysis")
-    uploaded_image = st.file_uploader("Upload an Image for Disaster Detection", type=["jpg", "jpeg", "png"])
+    uploaded_image = st.file_uploader("Upload an image for disaster detection", type=["jpg", "jpeg", "png"])
+    if uploaded_image:
+        img = Image.open(uploaded_image)
+        st.image(img, caption="Uploaded Image", use_container_width=True)
 
+        preprocessed = preprocess_image(img)
+        preds = cnn_model.predict(preprocessed)[0]
+        label = np.argmax(preds)
+        confidence = np.max(preds) * 100
+
+        categories = ["Non-Damage", "Fire Disaster", "Flood", "Earthquake", "Other"]
+        result = categories[label]
+
+        st.success(f"**{result} ({confidence:.1f}%)**")
+
+# -------------------------------
+# 💬 TEXT SECTION
+# -------------------------------
 with col2:
-    st.subheader("💬 Text Analysis")
-    user_text = st.text_area("Enter a message or tweet to classify", placeholder="Type your message here...")
+    input_text = st.text_area("Enter a message or tweet to classify")
+    if input_text:
+        cleaned = clean_text(input_text)
+        padded = tokenize_text([cleaned])
+        pred = text_model.predict(padded)[0][0]
+        label = "🚨 Disaster" if pred > 0.5 else "✅ Safe"
+        st.info(f"**{label} ({pred*100:.2f}%)**")
 
 st.divider()
-
-# ============================================================
-# IMAGE PREDICTION FUNCTION
-# ============================================================
-
-def predict_image(img_file):
-    img = Image.open(img_file).convert("RGB")
-    img = img.resize((224, 224))
-    img_array = image.img_to_array(img) / 255.0
-    img_array = np.expand_dims(img_array, axis=0)
-    preds = cnn_model.predict(img_array)
-    class_labels = ['Earthquake', 'Fire', 'Flood', 'Non-Damage', 'Storm']
-    pred_class = class_labels[np.argmax(preds)]
-    confidence = np.max(preds) * 100
-    return pred_class, confidence, img
-
-# ============================================================
-# TEXT PREDICTION FUNCTION
-# ============================================================
-
-def predict_text(text):
-    seq = tokenizer.texts_to_sequences([text])
-    padded = pad_sequences(seq, maxlen=60, padding='post')
-    preds = text_model.predict(padded)
-    disaster_prob = preds[0][0]
-    if disaster_prob > 0.5:
-        return "🚨 Disaster", disaster_prob * 100
-    else:
-        return "✅ Safe", (1 - disaster_prob) * 100
-
-# ============================================================
-# EXECUTION LOGIC
-# ============================================================
-
-analyze = st.button("🔍 Analyze")
-
-if analyze:
-    if not uploaded_image and not user_text.strip():
-        st.warning("⚠️ Please upload an image or enter text to analyze.")
-    else:
-        if uploaded_image:
-            try:
-                pred_class, conf, img = predict_image(uploaded_image)
-                st.image(img, caption="Uploaded Image", use_container_width=True)
-                st.success(f"🖼️ **{pred_class}** detected with **{conf:.2f}% confidence.**")
-            except Exception as e:
-                st.error(f"Image analysis failed: {str(e)}")
-
-        if user_text.strip():
-            try:
-                result, conf = predict_text(user_text)
-                st.info(f"💬 {result} ({conf:.2f}% confidence)")
-            except Exception as e:
-                st.error(f"Text analysis failed: {str(e)}")
-
-st.divider()
-st.caption("Developed using TensorFlow, Keras, and Streamlit 🌱")
+st.caption("Built with ❤️ using Streamlit + TensorFlow")
 
