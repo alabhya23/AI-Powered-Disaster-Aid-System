@@ -4,6 +4,10 @@ from tensorflow.keras.preprocessing import image, text, sequence
 import numpy as np
 from PIL import Image
 
+st.set_page_config(page_title="AI-Powered Disaster Detection System", layout="centered")
+
+st.title("🌍 AI-Powered Disaster Detection System")
+st.write("Analyze images and messages to detect potential disasters in real time.")
 # =========================
 # LOAD MODELS
 # =========================
@@ -18,8 +22,7 @@ cnn_model, text_model = load_models()
 # =========================
 # CONFIGURATION
 # =========================
-st.set_page_config(page_title="AI-Powered Disaster Detection System", layout="centered")
-st.title("🌍 AI-Powered Disaster Detection System")
+
 st.markdown("Analyze images and text messages to detect potential disasters in real-time.")
 
 # =========================
