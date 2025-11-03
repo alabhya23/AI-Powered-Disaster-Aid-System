@@ -1,88 +1,100 @@
 import streamlit as st
-import numpy as np
 from tensorflow.keras.models import load_model
-from tensorflow.keras.preprocessing import image
-from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
-from tensorflow.keras.preprocessing.sequence import pad_sequences
-from tensorflow.keras.preprocessing.text import Tokenizer
-import tensorflow as tf
+from tensorflow.keras.preprocessing import image, text, sequence
+import numpy as np
 from PIL import Image
-import io
-import re
 
-# ---------------------------
-# Load models
-# ---------------------------
+# =========================
+# LOAD MODELS
+# =========================
 @st.cache_resource
 def load_models():
-    text_model = load_model("disaster_text_bilstm.h5")
     cnn_model = load_model("disaster_cnn_mobilenet_clean.h5")
+    text_model = load_model("disaster_text_bilstm.h5")
     return cnn_model, text_model
 
 cnn_model, text_model = load_models()
 
-# ---------------------------
-# Title and layout
-# ---------------------------
+# =========================
+# CONFIGURATION
+# =========================
+st.set_page_config(page_title="AI-Powered Disaster Detection System", layout="centered")
 st.title("🌍 AI-Powered Disaster Detection System")
-st.write("Analyze **images** and **messages** to detect potential disasters in real time.")
+st.markdown("Analyze images and text messages to detect potential disasters in real-time.")
 
-tab1, tab2 = st.tabs(["🖼️ Image Analysis", "💬 Text Analysis"])
+# =========================
+# SIDEBAR INFO
+# =========================
+st.sidebar.header("🧠 About")
+st.sidebar.info("This app analyzes uploaded images and/or text messages to classify whether they indicate a **disaster** situation or not.")
 
-# ---------------------------
-# IMAGE ANALYSIS TAB
-# ---------------------------
-with tab1:
-    st.subheader("Upload an Image for Disaster Detection")
-    uploaded_file = st.file_uploader("Choose an image...", type=["jpg", "jpeg", "png"])
-    
-    if uploaded_file is not None:
-        img = Image.open(uploaded_file).convert("RGB")
+# =========================
+# INPUT SECTION
+# =========================
+st.subheader("📥 Upload or Enter Data")
+
+uploaded_image = st.file_uploader("Upload an image (optional):", type=["jpg", "jpeg", "png"])
+user_text = st.text_area("Enter a message or tweet (optional):", placeholder="Example: Heavy flooding has destroyed roads in the city.")
+
+# =========================
+# PROCESSING FUNCTIONS
+# =========================
+def predict_image(img_file):
+    try:
+        img = Image.open(img_file).convert("RGB")
         st.image(img, caption="Uploaded Image", use_container_width=True)
-        
-        # Preprocess for MobileNetV2
         img = img.resize((224, 224))
-        img_array = image.img_to_array(img)
-        img_array = np.expand_dims(img_array, axis=0)
-        img_array = preprocess_input(img_array)
-
+        img_array = np.expand_dims(np.array(img) / 255.0, axis=0)
         preds = cnn_model.predict(img_array)
-        pred_class = np.argmax(preds)
-        confidence = float(np.max(preds)) * 100
+        classes = ['Cyclone', 'Earthquake', 'Flood', 'Fire', 'Non-Damage']
+        result = classes[np.argmax(preds)]
+        confidence = np.max(preds) * 100
+        return result, confidence
+    except Exception as e:
+        return "Error", str(e)
 
-        # Labels — match your training set
-        labels = ['Damaged_Infrastructure', 'Fire_Disaster', 'Human_Damage', 'Land_Disaster', 'Non_Damage', 'Water_Disaster']
-        result = labels[pred_class]
+def predict_text(message):
+    try:
+        tokenizer = text.Tokenizer(num_words=10000, oov_token="<OOV>")
+        tokenizer.fit_on_texts([message])
+        text_seq = tokenizer.texts_to_sequences([message])
+        padded = sequence.pad_sequences(text_seq, maxlen=60, padding='post')
+        preds = text_model.predict(padded)
+        labels = ["Safe", "Disaster"]
+        result = labels[np.argmax(preds)]
+        confidence = np.max(preds) * 100
+        return result, confidence
+    except Exception as e:
+        return "Error", str(e)
 
-        st.success(f"**Prediction:** {result} ({confidence:.2f}%)")
+# =========================
+# DETECTION LOGIC
+# =========================
+if st.button("🚨 Run Disaster Detection"):
+    if not uploaded_image and not user_text.strip():
+        st.warning("⚠️ Please upload an image or enter a text message.")
+    else:
+        st.markdown("### 🔍 Analyzing...")
 
-# ---------------------------
-# TEXT ANALYSIS TAB
-# ---------------------------
-with tab2:
-    st.subheader("Enter a message or tweet to classify")
-    user_text = st.text_area("Type your message here...")
+        # IMAGE ANALYSIS
+        if uploaded_image:
+            img_result, img_conf = predict_image(uploaded_image)
+            st.success(f"🖼️ **Image Result:** {img_result} ({img_conf:.2f}%)")
 
-    def clean_text(text):
-        text = text.lower()
-        text = re.sub(r"http\S+", "", text)
-        text = re.sub(r"@\w+", "", text)
-        text = re.sub(r"[^a-zA-Z\s]", "", text)
-        text = re.sub(r"\s+", " ", text).strip()
-        return text
-
-    if st.button("Analyze Text"):
+        # TEXT ANALYSIS
         if user_text.strip():
-            # Prepare tokenizer (recreate same config as training)
-            tokenizer = Tokenizer(num_words=20000, oov_token="<OOV>")
-            text_seq = tokenizer.texts_to_sequences([clean_text(user_text)])
-            padded = pad_sequences(text_seq, maxlen=60, padding='post')
+            txt_result, txt_conf = predict_text(user_text)
+            st.success(f"💬 **Text Result:** {txt_result} ({txt_conf:.2f}%)")
 
-            pred = text_model.predict(padded)[0][0]
-            label = "🚨 Disaster" if pred > 0.5 else "✅ Safe"
-            confidence = float(pred if pred > 0.5 else 1 - pred) * 100
-            st.success(f"{label} ({confidence:.2f}%)")
+        # Combined Interpretation (like GCC)
+        if (uploaded_image and img_result != "Non-Damage") or (user_text.strip() and txt_result == "Disaster"):
+            st.error("🚨 ALERT: Potential Disaster detected! ⚠️")
+            st.markdown("**📡 Ground Control Center (GCC):** Emergency teams have been notified.")
         else:
-            st.warning("Please enter some text to analyze.")
+            st.info("✅ All clear! No disaster detected at this time.")
 
-st.caption("Developed for AI Disaster Detection Project — Phase 5")
+# =========================
+# FOOTER
+# =========================
+st.markdown("---")
+st.caption("Developed using TensorFlow, MobileNetV2, and Streamlit • © 2025 Disaster AI System")
