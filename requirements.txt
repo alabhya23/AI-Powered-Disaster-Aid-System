@@ -1,11 +1,7 @@
 streamlit==1.39.0
-tensorflow==2.20.0
 numpy==1.26.4
 pandas==2.2.2
 pillow==10.3.0
 scikit-learn==1.5.2
-<<<<<<< HEAD
+tensorflow==2.20.0
 keras==3.5.0
-=======
-keras==3.5.0"
->>>>>>> 84d2c5b (Fix TensorFlow compatibility for Python 3.13)
