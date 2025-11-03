@@ -15,8 +15,8 @@ import re
 # ---------------------------
 @st.cache_resource
 def load_models():
+    text_model = load_model("disaster_text_bilstm.h5")
     cnn_model = load_model("disaster_cnn_mobilenet_clean.h5")
-    text_model = load_model("disaster_text_lstm_clean.h5")
     return cnn_model, text_model
 
 cnn_model, text_model = load_models()
